@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Analiza sentimentului recenziilor</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: #f4f6fb;
+           margin: 0; padding: 32px 16px; color: #1f2937; }
+    .card { max-width: 680px; margin: 0 auto; background: #fff; border-radius: 14px;
+            padding: 28px; box-shadow: 0 4px 20px rgba(0,0,0,.08); }
+    h1 { margin: 0 0 6px; font-size: 24px; }
+    p.sub { margin: 0 0 20px; color: #6b7280; }
+    textarea { width: 100%; height: 150px; padding: 12px; font-size: 15px; font-family: inherit;
+               border: 1px solid #d1d5db; border-radius: 10px; resize: vertical; }
+    textarea:focus { outline: 2px solid #6366f1; border-color: transparent; }
+    .row { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; align-items: center; }
+    button { padding: 10px 18px; font-size: 15px; border: 0; border-radius: 8px; cursor: pointer; }
+    #go { background: #4f46e5; color: #fff; font-weight: 600; }
+    #go:disabled { background: #a5b4fc; cursor: wait; }
+    .ex { background: #eef2ff; color: #4338ca; font-size: 13px; padding: 6px 12px; }
+    #result { margin-top: 24px; display: none; }
+    .badge { display: inline-block; padding: 6px 16px; border-radius: 999px; color: #fff;
+             font-weight: 700; font-size: 18px; text-transform: uppercase; }
+    .pozitiv { background: #16a34a; } .negativ { background: #dc2626; } .neutru { background: #6b7280; }
+    .bar-row { display: flex; align-items: center; gap: 10px; margin: 8px 0; font-size: 14px; }
+    .bar-row span.n { width: 70px; } .bar-row span.v { width: 55px; text-align: right; }
+    .bar { flex: 1; height: 10px; background: #e5e7eb; border-radius: 6px; overflow: hidden; }
+    .bar > div { height: 100%; }
+    #err { color: #dc2626; margin-top: 16px; display: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Analiza sentimentului</h1>
+    <p class="sub">Introdu o recenzie în limba engleză și află dacă este pozitivă, negativă sau neutră.</p>
+
+    <textarea id="text" placeholder="Ex: This product is excellent, highly recommended!"></textarea>
+
+    <div class="row">
+      <button id="go">Analizează</button>
+      <button class="ex" data-t="This product is excellent, highly recommended!">Exemplu pozitiv</button>
+      <button class="ex" data-t="Terrible quality, it broke after two days.">Exemplu negativ</button>
+      <button class="ex" data-t="It's okay, nothing special but it works.">Exemplu neutru</button>
+    </div>
+
+    <div id="err"></div>
+
+    <div id="result">
+      <span id="label" class="badge"></span>
+      <span id="conf" style="margin-left:10px;color:#6b7280"></span>
+      <div id="bars" style="margin-top:16px"></div>
+    </div>
+  </div>
+
+  <script>
+    const COLORS = { pozitiv: "#16a34a", negativ: "#dc2626", neutru: "#6b7280" };
+    const $ = (id) => document.getElementById(id);
+
+    document.querySelectorAll(".ex").forEach(b =>
+      b.addEventListener("click", () => { $("text").value = b.dataset.t; }));
+
+    $("go").addEventListener("click", async () => {
+      const text = $("text").value.trim();
+      $("err").style.display = "none";
+      if (!text) { showError("Introdu mai întâi un text."); return; }
+
+      $("go").disabled = true;
+      $("go").textContent = "Se analizează...";
+      try {
+        const r = await fetch("/predict", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text })
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.detail || "Eroare la server.");
+        showResult(data);
+      } catch (e) {
+        showError(e.message);
+      } finally {
+        $("go").disabled = false;
+        $("go").textContent = "Analizează";
+      }
+    });
+
+    function showResult(d) {
+      $("label").textContent = d.label;
+      $("label").className = "badge " + d.label;
+      $("conf").textContent = "încredere: " + (d.confidence * 100).toFixed(1) + "%";
+      $("bars").innerHTML = ["pozitiv", "neutru", "negativ"].map(k => {
+        const p = (d.scores[k] * 100).toFixed(1);
+        return `<div class="bar-row"><span class="n">${k}</span>
+          <div class="bar"><div style="width:${p}%;background:${COLORS[k]}"></div></div>
+          <span class="v">${p}%</span></div>`;
+      }).join("");
+      $("result").style.display = "block";
+    }
+
+    function showError(msg) {
+      $("err").textContent = msg;
+      $("err").style.display = "block";
+      $("result").style.display = "none";
+    }
+  </script>
+</body>
+</html>
