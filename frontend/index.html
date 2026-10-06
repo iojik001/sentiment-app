@@ -5,6 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Analiza sentimentului recenziilor</title>
   <style>
+          .drop { border: 2px dashed #c7d2fe; border-radius: 10px; padding: 18px; text-align: center; color: #6b7280; }
+    #csvGo { background: #4f46e5; color: #fff; font-weight: 600; }
+    #csvGo:disabled { background: #a5b4fc; cursor: wait; }
+    #dl { background: #dcfce7; color: #166534; }
+    .sum { display: flex; gap: 10px; flex-wrap: wrap; margin: 16px 0; }
+    .sum div { background: #f3f4f6; padding: 8px 14px; border-radius: 8px; font-size: 14px; }
+    #csvErr { color: #dc2626; margin-top: 12px; display: none; }
+    #csvRes { display: none; }
     * { box-sizing: border-box; }
     body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: #f4f6fb;
            margin: 0; padding: 32px 16px; color: #1f2937; }
@@ -41,6 +49,24 @@
   </style>
 </head>
 <body>
+  <div class="card">
+    <h2 style="margin-bottom:6px">Analiză în masă (CSV)</h2>
+    <p class="sub">Încarcă un fișier .csv cu o coloană numită <b>text</b> (sau primele coloane vor fi folosite). Maximum 500 de recenzii.</p>
+    <div class="drop"><input type="file" id="csvFile" accept=".csv"></div>
+    <div class="row">
+      <button id="csvGo">Analizează fișierul</button>
+      <button id="dl" style="display:none">Descarcă rezultatele (.csv)</button>
+    </div>
+    <div id="csvErr"></div>
+    <div id="csvRes">
+      <div class="sum" id="csvSum"></div>
+      <table>
+        <thead><tr><th>Text</th><th>Rezultat</th><th>Încredere</th></tr></thead>
+        <tbody id="csvBody"></tbody>
+      </table>
+      <p id="csvMore" style="color:#6b7280;font-size:13px"></p>
+    </div>
+  </div>
   <div class="card">
     <h1>Analiza sentimentului</h1>
     <p class="sub">Introdu o recenzie în limba engleză și află dacă este pozitivă, negativă sau neutră.</p>
@@ -155,7 +181,75 @@
         body.appendChild(tr);
       });
     }
+    let csvRows = [];
 
+    $("csvGo").addEventListener("click", async () => {
+      const f = $("csvFile").files[0];
+      $("csvErr").style.display = "none";
+      if (!f) { csvError("Alege mai întâi un fișier .csv."); return; }
+
+      const fd = new FormData();
+      fd.append("file", f);
+      $("csvGo").disabled = true;
+      $("csvGo").textContent = "Se analizează... (poate dura)";
+      try {
+        const r = await fetch("/predict-csv", { method: "POST", body: fd });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || "Eroare la server.");
+        showCsv(d);
+      } catch (e) {
+        csvError(e.message);
+      } finally {
+        $("csvGo").disabled = false;
+        $("csvGo").textContent = "Analizează fișierul";
+      }
+    });
+
+    function csvError(msg) {
+      $("csvErr").textContent = msg;
+      $("csvErr").style.display = "block";
+      $("csvRes").style.display = "none";
+      $("dl").style.display = "none";
+    }
+
+    function showCsv(d) {
+      csvRows = d.rows;
+      $("csvSum").innerHTML =
+        `<div><b>${d.total}</b> recenzii</div>` +
+        `<div style="color:#16a34a"><b>${d.counts.pozitiv}</b> pozitive</div>` +
+        `<div style="color:#6b7280"><b>${d.counts.neutru}</b> neutre</div>` +
+        `<div style="color:#dc2626"><b>${d.counts.negativ}</b> negative</div>` +
+        `<div>${(d.time_ms / 1000).toFixed(1)} s</div>`;
+      const body = $("csvBody");
+      body.innerHTML = "";
+      d.rows.slice(0, 50).forEach(x => {
+        const tr = document.createElement("tr");
+        const t = document.createElement("td");
+        t.className = "t"; t.title = x.text; t.textContent = x.text;
+        const l = document.createElement("td");
+        const s = document.createElement("span");
+        s.className = "pill"; s.style.background = COLORS[x.label]; s.textContent = x.label;
+        l.appendChild(s);
+        const c = document.createElement("td");
+        c.textContent = (x.confidence * 100).toFixed(1) + "%";
+        tr.append(t, l, c);
+        body.appendChild(tr);
+      });
+      $("csvMore").textContent = d.total > 50 ? `Se afișează primele 50 din ${d.total}. Descarcă fișierul pentru toate rezultatele.` : "";
+      $("csvRes").style.display = "block";
+      $("dl").style.display = "inline-block";
+    }
+
+    $("dl").addEventListener("click", () => {
+      const esc = (v) => '"' + String(v).replace(/"/g, '""') + '"';
+      const lines = ["text,label,confidence"].concat(
+        csvRows.map(r => [esc(r.text), r.label, r.confidence].join(",")));
+      const blob = new Blob(["\ufeff" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "rezultate_sentiment.csv";
+      a.click();
+    });
     loadHistory();
   </script>
 </body>
